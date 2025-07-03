@@ -26,7 +26,6 @@ _CLOUD_CODES = {
     "SCT": "рассеянная облачность",
     "BKN": "облачность 5-7 октантов",
     "OVC": "сплошная облачность",
-    "CB": "кучево-дождевые облака",
 }
 
 _WIND_RE = re.compile(r"(?P<dir>\d{3}|VRB)(?P<spd>\d{2})(G(?P<gst>\d{2}))?KT")
@@ -57,14 +56,19 @@ def _decode_weather(tokens: list[str]) -> list[str]:
 def _decode_cloud(tokens: list[str]) -> list[str]:
     out = []
     for t in tokens:
+        # detect cumulonimbus tag
+        has_cb = t.endswith("CB")
+        base = t[:-2] if has_cb else t
         for code, desc in _CLOUD_CODES.items():
-            if t.startswith(code):
-                height = t[len(code):]
+            if base.startswith(code):
+                height = base[len(code):]
                 if height.isdigit():
-                    meters = int(height) * 30.48  # 100 ft increments
+                    meters = int(height) * 30.48
                     out.append(f"{desc} {int(meters)} м")
                 else:
                     out.append(desc)
+                if has_cb:
+                    out.append("кучево-дождевые облака")
     return out
 
 
@@ -97,6 +101,7 @@ def summarize_taf(taf_raw: str, issue_dt: datetime, tz_str: str) -> str:
 
     lines = [l.strip() for l in taf_raw.splitlines() if l.strip()]
     summaries: list[str] = []
+    prob_prefix: str | None = None
 
     # First line may start with DDHH/DDHH or wind etc.
     for line in lines:
@@ -104,8 +109,18 @@ def summarize_taf(taf_raw: str, issue_dt: datetime, tz_str: str) -> str:
         if not tokens:
             continue
         first = tokens[0]
-        if first in {"FM", "BECMG", "TEMPO"} or first.startswith("PROB"):
+        if first in {"FM", "BECMG", "TEMPO"} or first.startswith("PROB") or prob_prefix:
             # complex forms like FMHHMM not handled yet. We'll handle BECMG/TEMPO/PROBxx + range.
+            if first.startswith("PROB") and not prob_prefix:
+                prob = first[4:]
+                prob_prefix = f"Вероятность {prob}% "
+                # range may be on same line
+                if len(tokens) > 1 and _TIME_RANGE_RE.match(tokens[1]):
+                    start_token, end_token = _TIME_RANGE_RE.match(tokens[1]).groups()
+                    start_local, end_local = _range_to_local(start_token, end_token, issue_dt, tz_str)
+                    prob_prefix = prob_prefix + f"({start_local}-{end_local}) "
+                continue  # wait for next line to describe conditions
+
             if first == "BECMG":
                 # BECMG DDHH/DDHH ...
                 if len(tokens) >= 2 and _TIME_RANGE_RE.match(tokens[1]):
@@ -124,7 +139,7 @@ def summarize_taf(taf_raw: str, issue_dt: datetime, tz_str: str) -> str:
                     pieces.extend(_decode_weather(conditions_tokens))
                     pieces.extend(_decode_cloud(conditions_tokens))
                     cond_text = ", ".join(pieces) if pieces else "изменение погоды"
-                    summaries.append(f"С {start_local} до {end_local} ожидается {cond_text}.")
+                    summaries.append(f"В интервале {start_local}-{end_local} ожидается изменение к: {cond_text}.")
             elif first == "TEMPO":
                 if len(tokens) >= 2 and _TIME_RANGE_RE.match(tokens[1]):
                     start_token, end_token = _TIME_RANGE_RE.match(tokens[1]).groups()
@@ -142,26 +157,12 @@ def summarize_taf(taf_raw: str, issue_dt: datetime, tz_str: str) -> str:
                         pieces.append(wind_desc)
                     pieces.extend(_decode_cloud(conditions_tokens))
                     cond_text = ", ".join(pieces) if pieces else "временное изменение погоды"
-                    summaries.append(f"Временами ({start_local}-{end_local}) {cond_text}.")
+                    prefix = prob_prefix or "Временами "
+                    summaries.append(f"{prefix}({start_local}-{end_local}) {cond_text}.")
+                    prob_prefix = None
             elif first.startswith("PROB"):
-                prob = first[4:]  # 30 or 40
-                idx = 1
-                range_token = None
-                if len(tokens) > 1 and _TIME_RANGE_RE.match(tokens[1]):
-                    range_token = tokens[1]
-                    idx = 2
-                if range_token:
-                    start_token, end_token = _TIME_RANGE_RE.match(range_token).groups()
-                    start_local, end_local = _range_to_local(start_token, end_token, issue_dt, tz_str)
-                    conditions_tokens = tokens[idx:]
-                else:
-                    start_local = end_local = ""
-                    conditions_tokens = tokens[idx:]
-                pieces = _decode_weather(conditions_tokens)
-                pieces.extend(_decode_cloud(conditions_tokens))
-                cond_text = ", ".join(pieces) if pieces else "изменение погоды"
-                time_part = f" ({start_local}-{end_local})" if start_local else ""
-                summaries.append(f"Вероятность {prob}%{time_part} {cond_text}.")
+                # Standalone PROB lines handled earlier by setting prob_prefix
+                pass
         else:
             # Base forecast line (after issuance), often wind + CAVOK
             pieces = []
@@ -176,6 +177,11 @@ def summarize_taf(taf_raw: str, issue_dt: datetime, tz_str: str) -> str:
             if "CAVOK" in remainder:
                 pieces.append("CAVOK (видимость >10 км, нет значимой облачности)")
             if pieces:
-                summaries.append("Основной прогноз: " + ", ".join(pieces) + ".")
+                base_text = ", ".join(pieces)
+                if prob_prefix:
+                    summaries.append(prob_prefix + base_text + ".")
+                    prob_prefix = None
+                else:
+                    summaries.append("Основной прогноз: " + base_text + ".")
 
     return "\n".join(summaries) if summaries else taf_raw

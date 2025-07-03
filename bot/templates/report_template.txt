@@ -1,4 +1,4 @@
-{{icao}} • {{time_local}}
+Фактическая погода в {{time_local}} {{timezone_region}}
 Температура {{temperature_c}}°C, точка росы {{dewpoint_c}}°C. Ветер {{wind_dir_deg}}° {{wind_speed_kt}} узл{{wind_gust}}. {{cloud}}. Давление {{pressure_hpa}} гПа.
 
 TAF:

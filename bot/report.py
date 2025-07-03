@@ -32,7 +32,7 @@ def _load_template() -> str:
 
 def _local_time(dt: datetime, timezone_str: str) -> str:
     target_tz = tz.gettz(timezone_str)
-    return dt.astimezone(target_tz).strftime("%H:%M %Z")
+    return dt.astimezone(target_tz).strftime("%H:%M")
 
 
 def _wind_gust_suffix(gust_kt: int | None) -> str:
@@ -50,6 +50,7 @@ def generate_report(data: WeatherData, timezone_str: str, taf_text: str) -> str:
     report = template.format(
         icao=data.icao,
         time_local=_local_time(data.metar_time, timezone_str),
+        timezone_region=timezone_str,
         temperature_c=f"{data.temperature_c:+.0f}" if data.temperature_c is not None else "N/A",
         dewpoint_c=f"{data.dewpoint_c:+.0f}" if data.dewpoint_c is not None else "N/A",
         wind_dir_deg=data.wind_dir_deg if data.wind_dir_deg is not None else "VRB",
