@@ -4,6 +4,7 @@ import logging
 from datetime import datetime
 from pathlib import Path
 from typing import List
+import math
 
 from dateutil import tz
 
@@ -44,14 +45,27 @@ def build_alerts(data: WeatherData) -> str:
     return " • ".join(alerts)
 
 
+def rel_humidity(temp_c: float, dew_c: float) -> int:
+    """Calculate relative humidity (Magnus formula) and return integer percent."""
+    rh = 100 * math.exp((17.625 * dew_c) / (243.04 + dew_c) - (17.625 * temp_c) / (243.04 + temp_c))
+    return int(round(rh))
+
+
 def generate_report(data: WeatherData, timezone_str: str, taf_text: str) -> str:
     template = _load_template()
+
+    # calculate relative humidity
+    if data.temperature_c is not None and data.dewpoint_c is not None:
+        humidity = str(rel_humidity(data.temperature_c, data.dewpoint_c))
+    else:
+        humidity = "N/A"
 
     report = template.format(
         icao=data.icao,
         time_local=_local_time(data.metar_time, timezone_str),
         timezone_region=timezone_str,
         temperature_c=f"{data.temperature_c:+.0f}" if data.temperature_c is not None else "N/A",
+        humidity=humidity,
         dewpoint_c=f"{data.dewpoint_c:+.0f}" if data.dewpoint_c is not None else "N/A",
         wind_dir_deg=data.wind_dir_deg if data.wind_dir_deg is not None else "VRB",
         wind_speed_kt=data.wind_speed_kt if data.wind_speed_kt is not None else 0,
