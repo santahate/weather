@@ -76,8 +76,8 @@ def _decode_cloud(tokens: list[str]) -> list[str]:
     return out
 
 
-def _range_to_local(start_token: str, end_token: str, issue_dt: datetime, tz_str: str) -> tuple[str, str]:
-    """Convert DDHH/DDHH tokens to local HH:MM."""
+def _range_to_local(start_token: str, end_token: str, issue_dt: datetime, tz_str: str):
+    """Convert DDHH/DDHH tokens to local datetime objects and string representation."""
     start_day = int(start_token[:2])
     start_hour = int(start_token[2:4])
     end_day = int(end_token[:2])
@@ -97,7 +97,7 @@ def _range_to_local(start_token: str, end_token: str, issue_dt: datetime, tz_str
     start_dt_local = _to_dt(start_day, start_hour).astimezone(local_tz)
     end_dt_local = _to_dt(end_day, end_hour).astimezone(local_tz)
 
-    return start_dt_local.strftime("%H:%M"), end_dt_local.strftime("%H:%M")
+    return start_dt_local, end_dt_local
 
 
 def summarize_taf(taf_raw: str, issue_dt: datetime, tz_str: str) -> str:
@@ -106,6 +106,7 @@ def summarize_taf(taf_raw: str, issue_dt: datetime, tz_str: str) -> str:
     lines = [l.strip() for l in taf_raw.splitlines() if l.strip()]
     summaries: list[str] = []
     prob_prefix: str | None = None
+    now_local = datetime.now(tz.gettz(tz_str))
 
     # First line may start with DDHH/DDHH or wind etc.
     for line in lines:
@@ -121,7 +122,10 @@ def summarize_taf(taf_raw: str, issue_dt: datetime, tz_str: str) -> str:
                 # range may be on same line
                 if len(tokens) > 1 and _TIME_RANGE_RE.match(tokens[1]):
                     start_token, end_token = _TIME_RANGE_RE.match(tokens[1]).groups()
-                    start_local, end_local = _range_to_local(start_token, end_token, issue_dt, tz_str)
+                    start_local_dt, end_local_dt = _range_to_local(start_token, end_token, issue_dt, tz_str)
+                    if end_local_dt <= now_local:
+                        continue  # interval already past
+                    start_local = start_local_dt.strftime('%H:%M'); end_local = end_local_dt.strftime('%H:%M')
                     prob_prefix = prob_prefix + f"({start_local}-{end_local}) "
                 continue  # wait for next line to describe conditions
 
@@ -129,7 +133,10 @@ def summarize_taf(taf_raw: str, issue_dt: datetime, tz_str: str) -> str:
                 # BECMG DDHH/DDHH ...
                 if len(tokens) >= 2 and _TIME_RANGE_RE.match(tokens[1]):
                     start_token, end_token = _TIME_RANGE_RE.match(tokens[1]).groups()
-                    start_local, end_local = _range_to_local(start_token, end_token, issue_dt, tz_str)
+                    start_local_dt, end_local_dt = _range_to_local(start_token, end_token, issue_dt, tz_str)
+                    if end_local_dt <= now_local:
+                        continue
+                    start_local = start_local_dt.strftime('%H:%M'); end_local = end_local_dt.strftime('%H:%M')
                     conditions_tokens = tokens[2:]
                     wind_desc = None
                     for t in conditions_tokens:
@@ -147,7 +154,10 @@ def summarize_taf(taf_raw: str, issue_dt: datetime, tz_str: str) -> str:
             elif first == "TEMPO":
                 if len(tokens) >= 2 and _TIME_RANGE_RE.match(tokens[1]):
                     start_token, end_token = _TIME_RANGE_RE.match(tokens[1]).groups()
-                    start_local, end_local = _range_to_local(start_token, end_token, issue_dt, tz_str)
+                    start_local_dt, end_local_dt = _range_to_local(start_token, end_token, issue_dt, tz_str)
+                    if end_local_dt <= now_local:
+                        continue
+                    start_local = start_local_dt.strftime('%H:%M'); end_local = end_local_dt.strftime('%H:%M')
                     conditions_tokens = tokens[2:]
                     pieces = []
                     pieces.extend(_decode_weather(conditions_tokens))
