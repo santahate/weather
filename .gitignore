@@ -213,3 +213,4 @@ __marimo__/
 /.idea/vcs.xml
 /.idea/weather.iml
 /weather.sqlite3
+/.run
