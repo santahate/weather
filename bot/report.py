@@ -36,8 +36,16 @@ def _local_time(dt: datetime, timezone_str: str) -> str:
     return dt.astimezone(target_tz).strftime("%H:%M")
 
 
+def knots_to_kmh(knots: int | float | None) -> int | None:
+    """Convert speed from knots to km/h, return rounded int (None if input None)."""
+    if knots is None:
+        return None
+    return int(round(knots * 1.852))
+
+
 def _wind_gust_suffix(gust_kt: int | None) -> str:
-    return f", порывы {gust_kt} узл" if gust_kt else ""
+    gust_kmh = knots_to_kmh(gust_kt)
+    return f", порывы {gust_kmh} км/ч" if gust_kmh else ""
 
 
 def build_alerts(data: WeatherData) -> str:
@@ -68,7 +76,7 @@ def generate_report(data: WeatherData, timezone_str: str, taf_text: str) -> str:
         humidity=humidity,
         dewpoint_c=f"{data.dewpoint_c:+.0f}" if data.dewpoint_c is not None else "N/A",
         wind_dir_deg=data.wind_dir_deg if data.wind_dir_deg is not None else "VRB",
-        wind_speed_kt=data.wind_speed_kt if data.wind_speed_kt is not None else 0,
+        wind_speed_kmh=knots_to_kmh(data.wind_speed_kt) if data.wind_speed_kt is not None else 0,
         wind_gust=_wind_gust_suffix(data.wind_gust_kt),
         cloud=data.cloud or "CAVOK",
         pressure_hpa=data.pressure_hpa or "N/A",

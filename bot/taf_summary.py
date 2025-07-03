@@ -32,17 +32,21 @@ _WIND_RE = re.compile(r"(?P<dir>\d{3}|VRB)(?P<spd>\d{2})(G(?P<gst>\d{2}))?KT")
 _TIME_RANGE_RE = re.compile(r"(\d{4})/(\d{4})")
 
 
+def _kt_to_kmh(kn: str) -> int:
+    return int(round(int(kn) * 1.852))
+
+
 def _decode_wind(token: str) -> str | None:
     m = _WIND_RE.match(token)
     if not m:
         return None
     direction = m.group("dir")
-    speed = int(m.group("spd"))
+    speed_kmh = _kt_to_kmh(m.group("spd"))
     gust = m.group("gst")
-    gust_part = f", порывы {int(gust)} узл" if gust else ""
+    gust_part = f", порывы {_kt_to_kmh(gust)} км/ч" if gust else ""
     if direction == "VRB":
-        return f"переменный ветер {speed} узл{gust_part}"
-    return f"ветер {direction}° {speed} узл{gust_part}"
+        return f"переменный ветер {speed_kmh} км/ч{gust_part}"
+    return f"ветер {direction}° {speed_kmh} км/ч{gust_part}"
 
 
 def _decode_weather(tokens: list[str]) -> list[str]:
