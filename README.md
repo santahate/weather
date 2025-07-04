@@ -13,13 +13,14 @@ uv venv .venv -p python3.14
 uv pip install -r pyproject.toml  # uv understands PEP-621 deps
 
 # 3. Run manual fetch
-uv -q python -m bot.cli --airport UUEE --timezone Europe/Moscow --token $TG_TOKEN --chat $CHAT_ID
+source /path/to/project/.venv/bin/activate
+python -m bot.cli --airport UUEE --timezone Europe/Warsaw --token $TG_TOKEN --chat $CHAT_ID
 ```
 
 ## Cron example (every 10 minutes)
 
 ```cron
-*/10 * * * * /usr/bin/env bash -c 'source /path/to/project/.venv/bin/activate && python -m bot.cli --airport UUEE --timezone Europe/Moscow --token 123456:ABC... --chat -1001234567890'
+*/5 * * * * cd /path/to/project/ &&  /path/to/project/.venv/bin/python -m bot.cli --airport XXXX --timezone Europe/Warsaw --token "XXXX" --chat -XXXX'
 ```
 
 ## Project layout
