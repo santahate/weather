@@ -37,90 +37,26 @@ def _build_chart_config(times: list[str], pressures: list[int]) -> dict:
     }
 
 
-def generate_chart(rows: Iterable[Tuple[str, int | None, float | None, int | None]]) -> Path:
-    """Generate chart with pressure, temperature and humidity via QuickChart.io."""
+def generate_pressure_chart(rows: Iterable[Tuple[str, int | None]]) -> Path:
+    """Generate pressure chart PNG via QuickChart.io service and save locally."""
 
     times_fmt: list[str] = []
     pressures: list[int] = []
-    temps: list[float] = []
-    humids: list[int] = []
 
-    for iso_time, pressure, temp, humid in rows:
+    for iso_time, pressure in rows:
+        if pressure is None:
+            continue
         try:
             dt = datetime.fromisoformat(iso_time)
             times_fmt.append(dt.strftime("%H:%M"))
-            pressures.append(pressure if pressure is not None else None)
-            temps.append(temp if temp is not None else None)
-            humids.append(humid if humid is not None else None)
+            pressures.append(pressure)
         except Exception:
             logger.warning("Invalid datetime row: %s", iso_time)
 
-    if not any(pressures):
+    if not pressures:
         raise ValueError("No pressure data to plot")
 
-    if len(times_fmt) == 1:
-        # Simple chart: pressure + temp on single axis
-        chart_config = {
-            "type": "line",
-            "data": {
-                "labels": times_fmt,
-                "datasets": [
-                    {
-                        "label": "Pressure (hPa)",
-                        "data": pressures,
-                        "borderColor": "#3e95cd",
-                        "fill": False,
-                    },
-                    {
-                        "label": "Temp (C)",
-                        "data": temps,
-                        "borderColor": "#ff6384",
-                        "fill": False,
-                    },
-                ],
-            },
-            "options": {
-                "plugins": {"legend": {"display": True}},
-            },
-        }
-    else:
-        chart_config = {
-            "type": "line",
-            "data": {
-                "labels": times_fmt,
-                "datasets": [
-                    {
-                        "label": "Pressure (hPa)",
-                        "data": pressures,
-                        "borderColor": "#3e95cd",
-                        "yAxisID": "y",
-                        "fill": False,
-                    },
-                    {
-                        "label": "Temp (C)",
-                        "data": temps,
-                        "borderColor": "#ff6384",
-                        "yAxisID": "y1",
-                        "fill": False,
-                    },
-                    {
-                        "label": "RH (%)",
-                        "data": humids,
-                        "borderColor": "#4caf50",
-                        "yAxisID": "y1",
-                        "fill": False,
-                    },
-                ],
-            },
-            "options": {
-                "scales": {
-                    "y": {"title": {"display": True, "text": "hPa"}, "position": "left"},
-                    "y1": {"position": "right", "grid": {"drawOnChartArea": False}},
-                },
-                "plugins": {"legend": {"display": True}},
-            },
-        }
-
+    chart_config = _build_chart_config(times_fmt, pressures)
     url = "https://quickchart.io/chart"
     payload = {"c": json.dumps(chart_config)}
     logger.debug("Requesting QuickChart with payload length %d", len(payload["c"]))
@@ -128,5 +64,5 @@ def generate_chart(rows: Iterable[Tuple[str, int | None, float | None, int | Non
     resp.raise_for_status()
 
     OUTPUT_FILE.write_bytes(resp.content)
-    logger.debug("Chart saved to %s", OUTPUT_FILE)
+    logger.debug("Pressure chart saved to %s", OUTPUT_FILE)
     return OUTPUT_FILE

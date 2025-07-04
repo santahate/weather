@@ -5,7 +5,6 @@ import re
 from datetime import datetime, timedelta, timezone
 
 from dateutil import tz
-from dateutil.relativedelta import relativedelta
 
 logger = logging.getLogger(__name__)
 
@@ -88,16 +87,10 @@ def _range_to_local(start_token: str, end_token: str, issue_dt: datetime, tz_str
     month = issue_dt.month
 
     def _to_dt(day: int, hour: int):
-        if hour == 24:
-            # TAF uses 24 for midnight, meaning 0000 of the next day.
-            # Create date for day at 00:00 and add 1 day to handle month/year roll.
-            dt = datetime(year, month, day, 0, tzinfo=timezone.utc) + timedelta(days=1)
-        else:
-            dt = datetime(year, month, day, hour, tzinfo=timezone.utc)
-
-        # If constructed date is before issue date, it must be for next month
+        dt = datetime(year, month, day, hour, tzinfo=timezone.utc)
         if dt < issue_dt:
-            dt += relativedelta(months=1)
+            # crossed month forward
+            dt += timedelta(days=31)
         return dt
 
     local_tz = tz.gettz(tz_str)
