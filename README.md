@@ -27,16 +27,17 @@ python -m bot.cli --airport UUEE --timezone Europe/Warsaw --token $TG_TOKEN --ch
 
 ```
 bot/
-  __init__.py
-  api.py          # HTTP requests to aviationweather.gov
-  parser.py       # Decode METAR/TAF
-  db.py           # SQLite persistence
-  report.py       # Build human-readable report
-  chart.py        # Pressure chart via matplotlib
-  telegram.py     # Message/photo posting
-  templates/
-    report.txt    # Text template for the report
-main.py           # Entry-point wrapper (import bot.cli)
+   __init__.py
+   api.py          # Fetch raw METAR/TAF data
+   parser.py       # Decode METAR + parse sky/pressure etc.
+   taf_summary.py  # Human-readable TAF summariser
+   db.py           # SQLite persistence/deduplication
+   chart.py        # Generate pressure chart via QuickChart.io
+   report.py       # Build text report
+   telegram.py     # Send messages/photos to Telegram
+   templates/
+     report_template.txt  # Jinja-style template for the message
+main.py            # Entry-point wrapper (import bot.cli)
 ```
 
 ## Development
