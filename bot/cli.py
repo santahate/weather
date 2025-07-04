@@ -46,11 +46,11 @@ def main(argv: list[str] | None = None):
         tg = telegram.TelegramClient(args.token, args.chat)
 
         # Pressure chart
-        rows = db.fetch_pressure_last_hours(12, icao=args.airport)
+        rows = db.fetch_chart_data(12, icao=args.airport)
         chart_sent = False
         if rows and any(row[1] is not None for row in rows):
             try:
-                img_path = chart.generate_pressure_chart(rows)
+                img_path = chart.generate_chart(rows)
                 tg.send_photo(img_path, caption=text_report if len(text_report) <= 1024 else None)
                 chart_sent = True
             except ValueError as e:
