@@ -66,6 +66,40 @@ def _extract_taf_issue_time(taf_raw: str) -> datetime:
     return datetime(year, month, day, hour, minute, tzinfo=timezone.utc)
 
 
+# ---------------- Sky decoding ------------------
+
+_COVER_MAP = {
+    "SKC": "ясно",
+    "CLR": "ясно",
+    "FEW": "небольшая облачность",
+    "SCT": "рассеянная облачность",
+    "BKN": "облачно",
+    "OVC": "сплошная облачность",
+}
+
+
+def _decode_sky(sky_list) -> str | None:
+    parts: list[str] = []
+    for item in sky_list:
+        try:
+            cover = item[0]
+            height_ft = item[1].value() if hasattr(item[1], "value") else item[1]
+            cloud_type = item[2] if len(item) > 2 else None
+        except Exception:
+            parts.append(str(item))
+            continue
+
+        desc = _COVER_MAP.get(cover, cover)
+        if height_ft:
+            meters = int(round(float(height_ft) * 0.3048))
+            desc = f"{desc} {meters} м"
+        if cloud_type in {"CB", "TCU"}:
+            desc += " (кучево-дождевые облака)" if cloud_type == "CB" else " (башенные кучевые облака)"
+        parts.append(desc)
+
+    return ", ".join(parts) if parts else None
+
+
 def decode_metar_taf(icao: str, metar_raw: str, taf_raw: str) -> WeatherData:
     """Decode raw METAR/TAF strings into structured WeatherData object."""
 
@@ -110,7 +144,7 @@ def decode_metar_taf(icao: str, metar_raw: str, taf_raw: str) -> WeatherData:
         wind_speed_kt=int(m.wind_speed.value()) if m.wind_speed else None,
         wind_gust_kt=int(m.wind_gust.value()) if m.wind_gust else None,
         visibility_m=m.vis.value() if m.vis else None,
-        cloud=", ".join(str(c) for c in m.sky) if m.sky else None,
+        cloud=_decode_sky(m.sky) if m.sky else None,
         phenomena=[str(p) for p in m.weather] if m.weather else None,
     )
     logger.debug("Decoded METAR/TAF: %s", wd)
