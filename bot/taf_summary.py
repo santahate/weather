@@ -9,24 +9,33 @@ from dateutil.relativedelta import relativedelta
 
 logger = logging.getLogger(__name__)
 
-
 _WEATHER_CODES = {
-    "RA": "дождь",
-    "-RA": "слабый дождь",
-    "+RA": "сильный дождь",
-    "SHRA": "кратковременный дождь",
-    "-SHRA": "кратковременный слабый дождь",
-    "TS": "гроза",
-    "FG": "туман",
-    "SN": "снег",
-    "SHSN": "кратковременный снегопад",
+    # Rain
+    "-RA": f"слабый дождь 🌧",
+    "RA": f"дождь 🌧🌧",
+    "+RA": f"сильный дождь 🌧🌧🌧",
+    # Shower rain
+    "-SHRA": f"слабый ливневой дождь 🌦",
+    "SHRA": f"ливневой дождь 🌦🌦",
+    "+SHRA": f"сильный ливневой дождь 🌦🌦🌦",
+    # Thunderstorm
+    "TS": f"гроза ⚡️",
+    "-TSRA": f"слабая гроза с дождём ⛈️",
+    "TSRA": f"гроза с дождём ⛈️",
+    "+TSRA": f"сильная гроза с дождём ⛈️",
+    # Other phenomena
+    "FG": "туман 😶‍🌫️",
+    "SN": "снег ❄️",
+    "SHSN": "кратковременный снегопад ❄️❄️❄️",
 }
 
 _CLOUD_CODES = {
-    "FEW": "небольшая облачность",
-    "SCT": "рассеянная облачность",
-    "BKN": "облачность 5-7 октантов",
-    "OVC": "сплошная облачность",
+    "CLR": "безоблачно ○",
+    "SKC": "безоблачно ○",
+    "FEW": "небольшая облачность ◔",
+    "SCT": "рассеянная облачность ◑",
+    "BKN": "облачность 5-7 октантов ◕",
+    "OVC": "сплошная облачность ●",
 }
 
 _WIND_RE = re.compile(r"(?P<dir>\d{3}|VRB)(?P<spd>\d{2})(G(?P<gst>\d{2}))?KT")
@@ -125,16 +134,38 @@ def summarize_taf(taf_raw: str, issue_dt: datetime, tz_str: str) -> str:
             # complex forms like FMHHMM not handled yet. We'll handle BECMG/TEMPO/PROBxx + range.
             if first.startswith("PROB") and not prob_prefix:
                 prob = first[4:]
-                prob_prefix = f"Вероятность {prob}% "
-                # range may be on same line
-                if len(tokens) > 1 and _TIME_RANGE_RE.match(tokens[1]):
-                    start_token, end_token = _TIME_RANGE_RE.match(tokens[1]).groups()
+                idx = 1
+                time_range_text = ""
+                if len(tokens) > idx and _TIME_RANGE_RE.match(tokens[idx]):
+                    start_token, end_token = _TIME_RANGE_RE.match(tokens[idx]).groups()
                     start_local_dt, end_local_dt = _range_to_local(start_token, end_token, issue_dt, tz_str)
                     if end_local_dt <= now_local:
                         continue  # interval already past
                     start_local = start_local_dt.strftime('%H:%M'); end_local = end_local_dt.strftime('%H:%M')
-                    prob_prefix = prob_prefix + f"({start_local}-{end_local}) "
-                continue  # wait for next line to describe conditions
+                    time_range_text = f"({start_local}-{end_local}) "
+                    idx += 1
+
+                # If there are tokens after the (optional) time-range, treat them as conditions of this PROB group.
+                if len(tokens) > idx:
+                    conditions_tokens = tokens[idx:]
+                    pieces = []
+                    pieces.extend(_decode_weather(conditions_tokens))
+                    wind_desc = None
+                    for t in conditions_tokens:
+                        w = _decode_wind(t)
+                        if w:
+                            wind_desc = w
+                            break
+                    if wind_desc:
+                        pieces.append(wind_desc)
+                    pieces.extend(_decode_cloud(conditions_tokens))
+                    cond_text = ", ".join(pieces) if pieces else "изменение погоды"
+                    summaries.append(f"Вероятность {prob}% {time_range_text}{cond_text}.")
+                    prob_prefix = None
+                else:
+                    # No condition tokens yet – keep prefix for the following line.
+                    prob_prefix = f"Вероятность {prob}% {time_range_text}"
+                continue
 
             if first == "BECMG":
                 # BECMG DDHH/DDHH ...
