@@ -14,8 +14,23 @@ uv pip install -r pyproject.toml  # uv understands PEP-621 deps
 
 # 3. Run manual fetch
 source /path/to/project/.venv/bin/activate
-python -m bot.cli --airport UUEE --timezone Europe/Warsaw --token $TG_TOKEN --chat $CHAT_ID
+python -m bot.cli \
+  --airport UUEE \
+  --timezone Europe/Warsaw \
+  --token $TG_TOKEN \
+  --chat $CHAT_ID \
+  # --add-raw            # ← optionally include raw METAR/TAF
 ```
+
+## CLI parameters
+
+| Option       | Required | Description                                                                        |
+|--------------|----------|------------------------------------------------------------------------------------|
+| `--airport`  | yes      | ICAO code of airport (e.g. `EPLB`)                                                 |
+| `--timezone` | yes      | IANA timezone for local time in report (e.g. `Europe/Warsaw`)                      |
+| `--token`    | yes      | Telegram bot token obtained from @BotFather                                        |
+| `--chat`     | yes      | Chat ID (channel / group) where reports are sent, starts with `-100...` for groups |
+| `--add-raw`  | no       | Append raw METAR & TAF text at the end of message                                  |
 
 ## Cron example (every 10 minutes)
 
