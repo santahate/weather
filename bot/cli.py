@@ -19,6 +19,7 @@ def parse_args(argv: list[str] | None = None):
     p.add_argument("--timezone", required=True, help="Timezone string, e.g., Europe/Moscow or UTC+2")
     p.add_argument("--token", required=True, help="Telegram bot token")
     p.add_argument("--chat", required=True, help="Telegram chat ID")
+    p.add_argument("--add-raw", action="store_true", help="Append raw METAR/TAF to the message")
     return p.parse_args(argv)
 
 
@@ -41,7 +42,7 @@ def main(argv: list[str] | None = None):
         # Prepare TAF summary (very naive – could be improved)
         taf_text = taf_summary.summarize_taf(taf_raw, data.taf_issue_time, args.timezone)
 
-        text_report = report_module.generate_report(data, args.timezone, taf_text)
+        text_report = report_module.generate_report(data, args.timezone, taf_text, include_raw=args.add_raw)
 
         tg = telegram.TelegramClient(args.token, args.chat)
 

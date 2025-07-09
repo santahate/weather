@@ -59,7 +59,7 @@ def rel_humidity(temp_c: float, dew_c: float) -> int:
     return int(round(rh))
 
 
-def generate_report(data: WeatherData, timezone_str: str, taf_text: str) -> str:
+def generate_report(data: WeatherData, timezone_str: str, taf_text: str, *, include_raw: bool = False) -> str:
     template = _load_template()
 
     # calculate relative humidity
@@ -86,11 +86,12 @@ def generate_report(data: WeatherData, timezone_str: str, taf_text: str) -> str:
     )
 
     # Append raw METAR and TAF for full reference
-    report += (
-        "\n---\n"
-        f"METAR: {data.metar_raw}\n"
-        "TAF:\n"
-        f"{data.taf_raw}\n"
-    )
+    if include_raw:
+        report += (
+            "\n---\n"
+            f"METAR: {data.metar_raw}\n"
+            "TAF:\n"
+            f"{data.taf_raw}\n"
+        )
     logger.debug("Generated report: %s", report)
     return report
