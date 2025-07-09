@@ -84,5 +84,13 @@ def generate_report(data: WeatherData, timezone_str: str, taf_text: str) -> str:
         taf_text=taf_text,
         alerts=build_alerts(data),
     )
+
+    # Append raw METAR and TAF for full reference
+    report += (
+        "\n---\n"
+        f"METAR: {data.metar_raw}\n"
+        "TAF:\n"
+        f"{data.taf_raw}\n"
+    )
     logger.debug("Generated report: %s", report)
     return report
