@@ -5,6 +5,7 @@ import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import Tuple
 
 from .parser import WeatherData
 
@@ -43,7 +44,13 @@ def init_db() -> None:
     logger.debug("Database initialised at %s", DB_PATH)
 
 
+def _normalize_text(text: str) -> str:
+    return " ".join(text.split())
+
+
 def already_exists(data: WeatherData) -> bool:
+    metar_norm = _normalize_text(data.metar_raw)
+    taf_norm = _normalize_text(data.taf_raw)
     with _get_conn() as conn:
         cur = conn.execute(
             "SELECT 1 FROM weather WHERE icao=? AND metar_time=? AND taf_issue_time=? LIMIT 1",
@@ -53,7 +60,18 @@ def already_exists(data: WeatherData) -> bool:
                 data.taf_issue_time.isoformat(timespec="seconds"),
             ),
         )
-        return cur.fetchone() is not None
+        if cur.fetchone() is not None:
+            return True
+
+        cur = conn.execute(
+            "SELECT metar_text, taf_text FROM weather WHERE icao=? ORDER BY id DESC LIMIT 1",
+            (data.icao,),
+        )
+        row: Tuple[str, str] | None = cur.fetchone()
+        if row is None:
+            return False
+
+        return _normalize_text(row[0]) == metar_norm and _normalize_text(row[1]) == taf_norm
 
 
 def insert_weather(data: WeatherData) -> None:
