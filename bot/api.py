@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from typing import Tuple
 
 import requests
@@ -13,6 +14,36 @@ NOAA_TAF_URL = "https://tgftp.nws.noaa.gov/data/forecasts/taf/stations/{icao}.TX
 
 logger = logging.getLogger(__name__)
 
+_TAF_HEADER_RE = re.compile(r"^\d{4}/\d{2}/\d{2}\s+\d{2}:\d{2}$")
+
+
+def _strip_taf_prefix(line: str, icao_upper: str) -> str:
+    tokens = line.split()
+    if not tokens:
+        return ""
+    if tokens[0].upper() == "TAF":
+        tokens = tokens[1:]
+    if tokens and tokens[0].upper() in {"AMD", "COR", "RTD"}:
+        tokens = tokens[1:]
+    if tokens and tokens[0].upper() == icao_upper:
+        tokens = tokens[1:]
+    return " ".join(tokens)
+
+
+def _normalize_taf_lines(lines: list[str], icao_upper: str) -> str:
+    cleaned: list[str] = []
+    for idx, raw_line in enumerate(lines):
+        line = raw_line.strip()
+        if not line:
+            continue
+        if idx == 0:
+            line = _strip_taf_prefix(line, icao_upper)
+            if not line:
+                continue
+        cleaned.append(line)
+    return "\n".join(cleaned).strip()
+
+
 def fetch_metar_taf(icao: str) -> Tuple[str, str]:
     """Fetch raw METAR and TAF strings for given ICAO code.
 
@@ -21,8 +52,10 @@ def fetch_metar_taf(icao: str) -> Tuple[str, str]:
       2. If parsing fails or endpoint unavailable, fall back to classic NOAA
          text files (tgftp.nws.noaa.gov) which reliably host latest METAR & TAF.
     """
+    icao_upper = icao.upper()
     params = {
-        "ids": icao.upper(),
+        "ids": icao_upper,
+        "format": "raw",
         "taf": "true",
     }
     logger.debug("Requesting METAR/TAF for %s", icao)
@@ -36,22 +69,9 @@ def fetch_metar_taf(icao: str) -> Tuple[str, str]:
             #  EPLB 032100Z 33011KT ...
             #  TAF EPLB 031730Z 0318/0418 ...
             first_line_tokens = content_lines[0].split()
-            if first_line_tokens[0].upper() == icao.upper():
+            if first_line_tokens[0].upper() == icao_upper:
                 metar_raw = content_lines[0]
-                # collect TAF lines (remove leading 'TAF ' and ICAO token)
-                taf_lines = []
-                for idx, line in enumerate(content_lines[1:]):
-                    if idx == 0 and line.startswith("TAF"):
-                        # strip leading 'TAF ' + ICAO if present
-                        parts = line.split(maxsplit=2)
-                        if len(parts) >= 3 and parts[1].upper() == icao.upper():
-                            taf_lines.append(parts[2])
-                        else:
-                            taf_lines.append(line[len("TAF "):])
-                    else:
-                        taf_lines.append(line)
-
-                taf_raw = "\n".join(taf_lines).strip()
+                taf_raw = _normalize_taf_lines(content_lines[1:], icao_upper)
 
                 if metar_raw and taf_raw:
                     return metar_raw, taf_raw
@@ -61,7 +81,6 @@ def fetch_metar_taf(icao: str) -> Tuple[str, str]:
         logger.debug("Failed to fetch from AviationWeather API: %s", e)
 
     # --- Fallback to NOAA text files ---
-    icao_upper = icao.upper()
     metar_url = NOAA_METAR_URL.format(icao=icao_upper)
     taf_url = NOAA_TAF_URL.format(icao=icao_upper)
 
@@ -75,7 +94,10 @@ def fetch_metar_taf(icao: str) -> Tuple[str, str]:
     logger.debug("Fetching TAF from %s", taf_url)
     taf_resp = requests.get(taf_url, timeout=10)
     taf_resp.raise_for_status()
-    taf_raw = taf_resp.text.strip().splitlines()[-1]
+    taf_lines = [l.rstrip() for l in taf_resp.text.strip().splitlines() if l.strip()]
+    if taf_lines and _TAF_HEADER_RE.match(taf_lines[0]):
+        taf_lines = taf_lines[1:]
+    taf_raw = _normalize_taf_lines(taf_lines, icao_upper)
 
     if not metar_raw or len(metar_raw.split()) < 2:
         raise ValueError("Fallback NOAA source did not return valid METAR")
