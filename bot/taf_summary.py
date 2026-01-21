@@ -71,6 +71,7 @@ _WEATHER_CODES = {
 _CLOUD_CODES = {
     "CLR": "безоблачно ○",
     "SKC": "безоблачно ○",
+    "NSC": "нет значимой облачности",
     "FEW": "небольшая облачность ◔",
     "SCT": "рассеянная облачность ◑",
     "BKN": "облачность 5-7 октантов ◕",
@@ -79,6 +80,8 @@ _CLOUD_CODES = {
 
 _WIND_RE = re.compile(r"(?P<dir>\d{3}|VRB)(?P<spd>\d{2})(G(?P<gst>\d{2}))?KT")
 _TIME_RANGE_RE = re.compile(r"(\d{4})/(\d{4})")
+_VIS_SM_RE = re.compile(r"^(P)?(\d+)?(?:(\d+)/(\d+))?SM$")
+_ISSUE_TIME_RE = re.compile(r"^\d{6}Z$")
 
 
 def _kt_to_kmh(kn: str) -> int:
@@ -123,6 +126,73 @@ def _decode_cloud(tokens: list[str]) -> list[str]:
                 if has_cb:
                     out.append("кучево-дождевые облака")
     return out
+
+
+def _format_km(value_km: float) -> str:
+    if value_km.is_integer():
+        return f"{int(value_km)} км"
+    return f"{value_km:.1f} км"
+
+
+def _parse_visibility_token(token: str) -> str | None:
+    if token == "9999":
+        return "видимость 10+ км"
+    if token.isdigit() and len(token) == 4:
+        meters = int(token)
+        if meters >= 1000:
+            return f"видимость {_format_km(meters / 1000)}"
+        return f"видимость {meters} м"
+    m = _VIS_SM_RE.match(token)
+    if m:
+        is_greater = m.group(1) is not None
+        whole = int(m.group(2)) if m.group(2) else 0
+        if m.group(3) and m.group(4):
+            frac = int(m.group(3)) / int(m.group(4))
+        else:
+            frac = 0.0
+        miles = whole + frac
+        km = miles * 1.60934
+        sign = "> " if is_greater else ""
+        return f"видимость {sign}{_format_km(km)}"
+    return None
+
+
+def _decode_visibility(tokens: list[str]) -> list[str]:
+    out = []
+    for t in tokens:
+        if t == "CAVOK":
+            continue
+        vis = _parse_visibility_token(t)
+        if vis:
+            out.append(vis)
+    return out
+
+
+def _strip_base_header_tokens(tokens: list[str]) -> list[str]:
+    idx = 0
+    if idx < len(tokens) and _ISSUE_TIME_RE.match(tokens[idx]):
+        idx += 1
+    if idx < len(tokens) and _TIME_RANGE_RE.match(tokens[idx]):
+        idx += 1
+    return tokens[idx:]
+
+
+def _visibility_change_text(visibility_desc: list[str]) -> str:
+    cleaned = []
+    for v in visibility_desc:
+        if v.startswith("видимость > "):
+            cleaned.append("более " + v[len("видимость > "):])
+        elif v.startswith("видимость "):
+            cleaned.append(v[len("видимость "):])
+        else:
+            cleaned.append(v)
+    prefixed = []
+    for v in cleaned:
+        if v.startswith("более "):
+            prefixed.append(v)
+        else:
+            prefixed.append("до " + v)
+    return ", ".join(prefixed)
 
 
 def _range_to_local(start_token: str, end_token: str, issue_dt: datetime, tz_str: str):
@@ -189,6 +259,7 @@ def summarize_taf(taf_raw: str, issue_dt: datetime, tz_str: str) -> str:
                     conditions_tokens = tokens[idx:]
                     pieces = []
                     pieces.extend(_decode_weather(conditions_tokens))
+                    visibility_desc = _decode_visibility(conditions_tokens)
                     wind_desc = None
                     for t in conditions_tokens:
                         w = _decode_wind(t)
@@ -197,9 +268,16 @@ def summarize_taf(taf_raw: str, issue_dt: datetime, tz_str: str) -> str:
                             break
                     if wind_desc:
                         pieces.append(wind_desc)
+                    pieces.extend(visibility_desc)
                     pieces.extend(_decode_cloud(conditions_tokens))
+                    if "CAVOK" in conditions_tokens:
+                        pieces.append("CAVOK (видимость >10 км, нет значимой облачности)")
                     cond_text = ", ".join(pieces) if pieces else "изменение погоды"
-                    summaries.append(f"Вероятность {prob}% {time_range_text}{cond_text}.")
+                    if visibility_desc and len(pieces) == len(visibility_desc):
+                        vis_text = _visibility_change_text(visibility_desc)
+                        summaries.append(f"Вероятность {prob}% {time_range_text}изменение видимости: {vis_text}.")
+                    else:
+                        summaries.append(f"Вероятность {prob}% {time_range_text}{cond_text}.")
                     prob_prefix = None
                 else:
                     # No condition tokens yet – keep prefix for the following line.
@@ -225,9 +303,19 @@ def summarize_taf(taf_raw: str, issue_dt: datetime, tz_str: str) -> str:
                     if wind_desc:
                         pieces.append(wind_desc)
                     pieces.extend(_decode_weather(conditions_tokens))
+                    visibility_desc = _decode_visibility(conditions_tokens)
+                    pieces.extend(visibility_desc)
                     pieces.extend(_decode_cloud(conditions_tokens))
+                    if "CAVOK" in conditions_tokens:
+                        pieces.append("CAVOK (видимость >10 км, нет значимой облачности)")
                     cond_text = ", ".join(pieces) if pieces else "изменение погоды"
-                    summaries.append(f"В интервале {start_local}-{end_local} ожидается изменение к: {cond_text}.")
+                    if visibility_desc and len(pieces) == len(visibility_desc):
+                        vis_text = _visibility_change_text(visibility_desc)
+                        summaries.append(
+                            f"В интервале {start_local}-{end_local} ожидается изменение видимости: {vis_text}."
+                        )
+                    else:
+                        summaries.append(f"В интервале {start_local}-{end_local} ожидается изменение к: {cond_text}.")
             elif first == "TEMPO":
                 if len(tokens) >= 2 and _TIME_RANGE_RE.match(tokens[1]):
                     start_token, end_token = _TIME_RANGE_RE.match(tokens[1]).groups()
@@ -238,6 +326,7 @@ def summarize_taf(taf_raw: str, issue_dt: datetime, tz_str: str) -> str:
                     conditions_tokens = tokens[2:]
                     pieces = []
                     pieces.extend(_decode_weather(conditions_tokens))
+                    visibility_desc = _decode_visibility(conditions_tokens)
                     wind_desc = None
                     for t in conditions_tokens:
                         w = _decode_wind(t)
@@ -246,26 +335,37 @@ def summarize_taf(taf_raw: str, issue_dt: datetime, tz_str: str) -> str:
                             break
                     if wind_desc:
                         pieces.append(wind_desc)
+                    pieces.extend(visibility_desc)
                     pieces.extend(_decode_cloud(conditions_tokens))
+                    if "CAVOK" in conditions_tokens:
+                        pieces.append("CAVOK (видимость >10 км, нет значимой облачности)")
                     cond_text = ", ".join(pieces) if pieces else "временное изменение погоды"
                     prefix = prob_prefix or "Временами "
-                    summaries.append(f"{prefix}({start_local}-{end_local}) {cond_text}.")
+                    if visibility_desc and len(pieces) == len(visibility_desc):
+                        vis_text = _visibility_change_text(visibility_desc)
+                        summaries.append(f"{prefix}({start_local}-{end_local}) изменение видимости: {vis_text}.")
+                    else:
+                        summaries.append(f"{prefix}({start_local}-{end_local}) {cond_text}.")
                     prob_prefix = None
             elif first.startswith("PROB"):
                 # Standalone PROB lines handled earlier by setting prob_prefix
                 pass
         else:
             # Base forecast line (after issuance), often wind + CAVOK
+            conditions_tokens = _strip_base_header_tokens(tokens)
             pieces = []
-            wind_desc = _decode_wind(first)
+            wind_desc = None
+            for t in conditions_tokens:
+                w = _decode_wind(t)
+                if w:
+                    wind_desc = w
+                    break
             if wind_desc:
                 pieces.append(wind_desc)
-                remainder = tokens[1:]
-            else:
-                remainder = tokens
-            pieces.extend(_decode_weather(remainder))
-            pieces.extend(_decode_cloud(remainder))
-            if "CAVOK" in remainder:
+            pieces.extend(_decode_weather(conditions_tokens))
+            pieces.extend(_decode_visibility(conditions_tokens))
+            pieces.extend(_decode_cloud(conditions_tokens))
+            if "CAVOK" in conditions_tokens:
                 pieces.append("CAVOK (видимость >10 км, нет значимой облачности)")
             if pieces:
                 base_text = ", ".join(pieces)
